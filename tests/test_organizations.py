@@ -4,15 +4,15 @@ from datetime import date, timedelta
 import pytest
 from playwright.sync_api import expect
 
-from pages.organization.org_access_control import OrgDirectoryPage
+from pages.Management.org_access_control import OrgDirectoryPage
 from utils.config import BASE_URL
 
 
 ORG = "BPCL"
 OTHER_ORG = "SNV AVIATION PRIVATE LTD"
 USER = "user1234"
-NEW_USER = "user321opss"
-NEW_USER_EMAIL = "user321opss@gmail.com"
+NEW_USER = "testing user21121"
+NEW_USER_EMAIL = "testuser12@gmail.com"
 NEW_USER_MOBILE = "9876543232"
 NEW_USER_ROLE = "Operations"
 ROLE = "Finance"

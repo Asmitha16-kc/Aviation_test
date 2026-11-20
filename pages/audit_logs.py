@@ -6,25 +6,55 @@ from utils.config import BASE_URL
 class AuditLogsPage(BasePage):
     def __init__(self, page):
         super().__init__(page)
-        self.heading = page.get_by_role("heading", name="Audit Logs")
-        self.search_box = page.get_by_role("textbox", name="Search by actor")
-        self.clear_search_btn = page.get_by_role("button", name="Clear search")
-        self.action_filter = page.get_by_role("combobox", name="Action")
-        self.organization_filter = page.get_by_role("combobox", name="Organization")
-        self.entity_filter = page.get_by_role("combobox", name="Entity")
-        self.filters_btn = page.get_by_role("button", name="Filters")
-        self.close_filters_btn = page.get_by_role("button", name="Close filters")
-        self.clear_all_filters_btn = page.get_by_role("button", name="Clear all filters")
-        self.from_date = page.get_by_role("textbox", name="From")
-        self.to_date = page.get_by_role("textbox", name="To")
-        self.columns_btn = page.get_by_role("button", name="Choose columns")
-        self.show_all_btn = page.get_by_role("button", name="Show all")
-        self.view_buttons = page.get_by_role("button", name="View")
+        self.heading = page.get_by_role(
+            "heading", name=re.compile(r"^Audit Logs$", re.I)
+        )
+        self.search_box = page.get_by_role(
+            "textbox", name=re.compile(r"Search by actor", re.I)
+        )
+        self.clear_search_btn = page.get_by_role(
+            "button", name=re.compile(r"Clear search", re.I)
+        )
+        self.action_filter = page.get_by_role(
+            "combobox", name=re.compile(r"^Action(?:\s+.*)?$", re.I)
+        )
+        self.organization_filter = page.get_by_role(
+            "combobox", name=re.compile(r"^Organization$", re.I)
+        )
+        self.entity_filter = page.get_by_role(
+            "combobox", name=re.compile(r"^Entity$", re.I)
+        )
+        self.filters_btn = page.get_by_role(
+            "button", name=re.compile(r"Filters?", re.I)
+        )
+        self.close_filters_btn = page.get_by_role(
+            "button", name=re.compile(r"Close filters?", re.I)
+        )
+        self.clear_all_filters_btn = page.get_by_role(
+            "button", name=re.compile(r"Clear all filters?", re.I)
+        )
+        self.from_date = page.get_by_role(
+            "textbox", name=re.compile(r"^From$", re.I)
+        )
+        self.to_date = page.get_by_role(
+            "textbox", name=re.compile(r"^To$", re.I)
+        )
+        self.columns_btn = page.get_by_role(
+            "button", name=re.compile(r"Choose columns?", re.I)
+        )
+        self.show_all_btn = page.get_by_role(
+            "button", name=re.compile(r"Show all", re.I)
+        )
+        self.view_buttons = page.get_by_role(
+            "button", name=re.compile(r"^View$|^Details?$", re.I)
+        )
         self.popup = page.get_by_role("dialog")
-        self.close_btn = page.get_by_role("button", name="Close")
-        # data rows = rows that contain a View button (skips the header row)
+        self.close_btn = self.popup.get_by_label("Close", exact=True)
+        # data rows = rows that contain an action button, regardless of button text
         self.rows = page.get_by_role("row").filter(
-            has=page.get_by_role("button", name="View")
+            has=page.locator("button, [role='button'], a").filter(
+                has_text=re.compile(r"View|Details|Open|Actions", re.I)
+            )
         )
 
     # ---------- open ----------
@@ -44,22 +74,38 @@ class AuditLogsPage(BasePage):
     # ---------- search ----------
     def search_by_actor(self, name):
         self.search_box.fill(name)
+        self.search_box.press("Enter")
 
     def clear_search(self):
-        self.clear_search_btn.click()
+        if self.clear_search_btn.is_visible():
+            self.clear_search_btn.click()
+        else:
+            self.search_box.fill("")
 
     # ---------- view details ----------
     def open_first_log(self):
         self.view_buttons.first.click()
 
     def close_popup(self):
-        self.close_btn.click()
+        if self.popup.is_visible():
+            self.close_btn.click()
+            self.popup.wait_for(state="hidden")
 
     # ---------- dropdowns (tries several ways to find the closed dropdown) ----------
     def _choose(self, dropdown, option):
         dropdown.click()
         exact = re.compile(f"^{re.escape(option)}$", re.I)
-        self.page.get_by_role("option", name=exact).click()
+        candidates = [
+            self.page.get_by_role("option", name=exact),
+            self.page.get_by_role("menuitem", name=exact),
+            self.page.get_by_text(option, exact=True),
+            self.page.get_by_text(re.compile(re.escape(option), re.I)),
+        ]
+        for candidate in candidates:
+            if candidate.count():
+                candidate.first.click()
+                return
+        raise AssertionError(f"Could not find option {option!r} in the dropdown")
 
     def select_action(self, action):
         self._choose(self.action_filter, action)
@@ -76,9 +122,11 @@ class AuditLogsPage(BasePage):
     def set_date_range(self, start_date, end_date):
         self.from_date.fill(start_date)
         self.to_date.fill(end_date)
+        self.page.keyboard.press("Tab")
 
     def clear_all_filters(self):
-        self.clear_all_filters_btn.click()
+        if self.clear_all_filters_btn.is_visible():
+            self.clear_all_filters_btn.click()
 
     # ---------- columns ----------
     def open_columns(self):

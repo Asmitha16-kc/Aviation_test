@@ -103,7 +103,6 @@ class OrgDirectoryPage(BasePage):
 
     def submit_add_user_form(self):
         self.page.get_by_role("button", name="Invite User").click()
-        self.page.get_by_role("button", name="Done").click()
 
     def open_configure_roles(self, organization):
         self.open_organization_menu(organization)

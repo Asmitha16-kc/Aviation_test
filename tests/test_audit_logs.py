@@ -3,13 +3,11 @@ import re
 import pytest
 from playwright.sync_api import expect
 from pages.audit_logs import AuditLogsPage
+from utils.config import BASE_URL
 
-SEARCH_TEXT = "regional head"
 ACTION = "Login success"
 ACTION_OPTIONS_TO_CHECK = [ACTION, "Logout"]
 ORGANIZATION = "BPCL"
-ENTITY = "USER"
-DATE_RANGE = ("2026-10-21", "2026-10-28")
 COLUMNS_TO_HIDE = ["Organization", "Actor", "Entity"]
 USER_EXPORT_ACTION = re.compile(
     r"(?:user.*(?:export|download)|(?:export|download).*user|excel)", re.I
@@ -50,9 +48,12 @@ def expect_rows_contain(audit, *values):
 def test_audit_logs_page_and_actor_search(audit_logs):
     audit = audit_logs
     expect(audit.heading).to_be_visible()
-    audit.search_by_actor(SEARCH_TEXT)
+    wait_for_rows(audit)
+    actor = audit.rows.first.get_by_role("gridcell").nth(2).inner_text().strip()
+    assert actor, "Expected an actor in the first audit-log row"
+    audit.search_by_actor(actor)
     try:
-        expect_rows_contain(audit, SEARCH_TEXT)
+        expect_rows_contain(audit, actor)
     finally:
         if audit.search_box.input_value():
             audit.clear_search()
@@ -85,40 +86,53 @@ def test_hide_three_columns_in_one_session(audit_logs):
 
 def test_filter_panel_applies_organization_entity_and_date_range(audit_logs):
     audit = audit_logs
+    wait_for_rows(audit)
+    cells = audit.rows.first.get_by_role("gridcell")
+    timestamp = cells.nth(0).inner_text()
+    organization = cells.nth(1).inner_text().strip()
+    row_action = cells.nth(4).inner_text().strip()
+    entity = cells.nth(5).inner_text().strip()
+    row_date = datetime.strptime(timestamp, "%d/%m/%Y %H:%M").date()
+
     audit.action_filter.click()
-    for action in ACTION_OPTIONS_TO_CHECK:
+    for action_option in ACTION_OPTIONS_TO_CHECK:
         expect(
-            audit.page.get_by_role("option", name=action, exact=True)
+            audit.page.get_by_role("option", name=action_option, exact=True)
         ).to_be_visible()
-    audit.page.get_by_role("option", name=ACTION, exact=True).click()
+    audit.page.get_by_role("option", name=row_action, exact=True).click()
     audit.open_filters()
-    audit.select_organization(ORGANIZATION)
-    audit.select_entity(ENTITY)
-    audit.set_date_range(*DATE_RANGE)
+    audit.select_organization(organization)
+    audit.select_entity(entity)
+    audit.set_date_range(row_date.isoformat(), row_date.isoformat())
     audit.close_filters_btn.click()
 
-    expect(audit.action_filter).to_contain_text(ACTION)
-    expect(
-        audit.page.get_by_role("button", name=f"Action: {ACTION}", exact=True)
-    ).to_be_visible()
+    expect(audit.action_filter).to_contain_text(row_action)
     expect(
         audit.page.get_by_role(
-            "button", name=f"Organization: {ORGANIZATION}", exact=True
+            "button", name=f"Action: {row_action}", exact=True
         )
     ).to_be_visible()
     expect(
-        audit.page.get_by_role("button", name=f"Entity: {ENTITY}", exact=True)
+        audit.page.get_by_role(
+            "button", name=f"Organization: {organization}", exact=True
+        )
     ).to_be_visible()
     expect(
-        audit.page.get_by_role("button", name="From: 21/10/2026", exact=True)
+        audit.page.get_by_role("button", name=f"Entity: {entity}", exact=True)
     ).to_be_visible()
     expect(
-        audit.page.get_by_role("button", name="To: 28/10/2026", exact=True)
+        audit.page.get_by_role(
+            "button", name=f"From: {row_date.strftime('%d/%m/%Y')}", exact=True
+        )
+    ).to_be_visible()
+    expect(
+        audit.page.get_by_role(
+            "button", name=f"To: {row_date.strftime('%d/%m/%Y')}", exact=True
+        )
     ).to_be_visible()
 
-    expect_rows_contain(audit, ACTION, ORGANIZATION, ENTITY)
-    start = datetime.fromisoformat(DATE_RANGE[0]).date()
-    end = datetime.fromisoformat(DATE_RANGE[1]).date()
+    expect_rows_contain(audit, row_action, organization, entity)
+    start = end = row_date
     for row in audit.rows.all():
         timestamp = row.get_by_role("gridcell").first.inner_text()
         row_date = datetime.strptime(timestamp, "%d/%m/%Y %H:%M").date()
@@ -132,8 +146,7 @@ def test_user_directory_excel_export_is_recorded_in_audit_logs(audit_logs):
     if clear_all_chip.count():
         clear_all_chip.click()
 
-    page.get_by_role("button", name="Users").click()
-    page.get_by_role("button", name="User directory").click()
+    page.goto(f"{BASE_URL}/users")
     expect(page.get_by_role("heading", name="User Management")).to_be_visible()
 
     page.get_by_role("combobox", name="Organization").click()

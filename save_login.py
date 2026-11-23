@@ -1,70 +1,75 @@
+import os
+import re
 import sys
-from pathlib import Path
-from urllib.parse import urlsplit
 
+from dotenv import load_dotenv
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
 from utils.auth_state import (
     app_origin,
     capture_session_storage,
-    restore_session_storage,
     save_session_storage,
     session_storage_path,
 )
-from utils.config import BASE_URL, USERS
 
-role = sys.argv[1]
-user_id, password = USERS[role]
-state_path = Path(".auth") / f"{role}.json"
-if not BASE_URL:
-    raise RuntimeError("BASE_URL must be configured before saving a login state.")
+load_dotenv(override=True)
+
+ROLES = {
+    "super_admin": ("SUPERADMIN_USER_ID", "SUPERADMIN_PASSWORD"),
+    "customer_administrator": ("Customer_Administrator_ID", "Customer_Administrator_PASSWORD"),
+    "finance_coordinator": ("Finance_Coordinator_ID", "Finance_Coordinator_PASSWORD"),
+}
+
+role = sys.argv[1] if len(sys.argv) > 1 else "super_admin"
+if role not in ROLES:
+    raise SystemExit(f"Unknown role {role!r}. Choose from: {', '.join(ROLES)}")
+
+base_url = os.getenv("BASE_URL")
+user = os.getenv(ROLES[role][0])
+pwd = os.getenv(ROLES[role][1])
+if not base_url or not user or not pwd:
+    raise RuntimeError(
+        "BASE_URL and the selected role's username/password must be set in .env."
+    )
 
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=False)
     context = browser.new_context()
     page = context.new_page()
-    page.goto(BASE_URL)
-
     try:
-        page.get_by_role("textbox", name="User ID").fill(user_id or "")
-        page.get_by_role("textbox", name="Password").fill(password or "")
-    except Exception:
-        print("Could not auto-fill. Type the ID and password manually.")
+        page.goto(base_url)
 
-    try:
-        input(
-            f"Solve the captcha, click Continue as {role}, and press Enter "
-            "after the dashboard appears..."
-        )
-        page.wait_for_url("**/dashboard**", timeout=60000)
-        page.wait_for_load_state("networkidle")
+        password_field = page.locator("input[type='password']").first
+        password_field.wait_for(timeout=30000)
+        username_field = page.locator(
+            "input[type='email'], input[type='text'], input:not([type])"
+        ).first
+        username_field.fill(user)
+        password_field.fill(pwd)
 
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        session_path = session_storage_path(state_path)
-        origin = app_origin(BASE_URL)
-        save_session_storage(
-            session_path, origin, capture_session_storage(page)
-        )
-        context.storage_state(path=str(state_path))
-
-        validation_context = browser.new_context(storage_state=str(state_path))
+        print("Credentials filled. Solve the captcha and click Login in the browser.")
         try:
-            restore_session_storage(validation_context, session_path, origin)
-            validation_page = validation_context.new_page()
-            validation_page.goto(f"{BASE_URL}/dashboard")
-            validation_page.wait_for_load_state("networkidle")
-            dashboard_path = urlsplit(validation_page.url).path.rstrip("/")
-            if dashboard_path != "/dashboard":
-                raise RuntimeError(
-                    "The saved login state was rejected. Complete the login "
-                    "again and wait for the dashboard before saving."
-                )
-            save_session_storage(
-                session_path, origin, capture_session_storage(validation_page)
+            page.wait_for_url(
+                re.compile(r".*/dashboard/?(?:[?#].*)?$"),
+                timeout=180000,
             )
-            validation_context.storage_state(path=str(state_path))
-        finally:
-            validation_context.close()
+        except PlaywrightTimeoutError as error:
+            raise RuntimeError(
+                "Login was not confirmed: the browser did not reach /dashboard "
+                "within 3 minutes. Check the credentials, captcha, and any "
+                "message shown on the login page. No state was saved."
+            ) from error
+
+        page.wait_for_load_state("domcontentloaded")
+        os.makedirs(".auth", exist_ok=True)
+        state_path = f".auth/{role}.json"
+        context.storage_state(path=state_path)
+        save_session_storage(
+            session_storage_path(state_path),
+            app_origin(base_url),
+            capture_session_storage(page),
+        )
+        print(f"Login state saved for {role}.")
     finally:
         browser.close()
-
-print(f"Saved and verified {state_path}")

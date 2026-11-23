@@ -1,0 +1,11 @@
+Full Name,Email,Mobile Number
+,empty.name@example.com,9000000011
+No Email,,9000000012
+Bad Email,bad-email-format,9000000013
+Short Mobile,short.mobile@example.com,90000
+Letters Mobile,letters.mobile@example.com,abcdefghij
+Plus Code,plus.code@example.com,+919000000016
+Duplicate A,dup@example.com,9000000017
+Duplicate B,dup@example.com,9000000018
+Existing User,admin@indigo.com,9000000019
+  Spaces Name  ,  spaces@example.com  ,9000000020

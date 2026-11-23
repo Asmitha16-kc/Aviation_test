@@ -1,5 +1,12 @@
 import os
+
 import pytest
+
+from utils.auth_state import (
+    app_origin,
+    restore_session_storage,
+    session_storage_path,
+)
 from utils.config import BASE_URL
 
 os.makedirs(".auth", exist_ok=True)
@@ -12,13 +19,19 @@ def _start(browser, role):
     if not os.path.exists(path):
         pytest.skip(f"{path} missing. Run: python save_login.py {role}")
     context = browser.new_context(storage_state=path)
+    restore_session_storage(
+        context, session_storage_path(path), app_origin(BASE_URL)
+    )
     context.set_default_timeout(TIMEOUT)
     page = context.new_page()
     page.goto(f"{BASE_URL}/dashboard")
     page.wait_for_load_state("networkidle")
     if "session-expired" in page.url or "/login" in page.url:
         context.close()
-        pytest.skip(f"Session expired. Run: python save_login.py {role}")
+        pytest.fail(
+            f"Saved login state for {role!r} was rejected. "
+            f"Run: python save_login.py {role}"
+        )
     return context, page
 
 
